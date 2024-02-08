@@ -6,14 +6,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import com.jsp.fc.entity.Customer;
 import com.jsp.fc.entity.Seller;
 import com.jsp.fc.entity.User;
+import com.jsp.fc.repository.CustomerRepository;
+import com.jsp.fc.repository.SellerRepository;
 import com.jsp.fc.repository.UserRepository;
-import com.jsp.fc.repository.customerRepository;
-import com.jsp.fc.repository.sellerRepository;
 import com.jsp.fc.requestdto.UserRequest;
 import com.jsp.fc.responsedto.UserResponse;
 import com.jsp.fc.service.AuthService;
@@ -25,21 +26,22 @@ import lombok.NoArgsConstructor;
 @Service
 @AllArgsConstructor
 public class AuthServiceImpl implements AuthService {
-
-	private sellerRepository sellerRepository;
-
-	private customerRepository customerRepository;
-
+	private SellerRepository sellerRepository;
+	private CustomerRepository customerRepository;
 	private ResponseStructure<UserResponse> responseStructure;
-
 	private UserRepository userRepository;
+	
+	@Autowired
+	private PasswordEncoder passwordEncoder;
+	
 
 	private UserResponse mapToUserResponse(User request) {
 		return UserResponse.builder().userId(request.getUserId()).userName(request.getUserName()).userEmail(request.getUserEmail()).userRole(request.getUserRole()).build();
 	}
 
-	static <T extends User> T mapToUser(UserRequest userRequest) {
+	private <T extends User> T mapToUser(UserRequest userRequest) {
 		User user = null;
+		
 		switch (userRequest.getUserRole()) {
 		case SELLER: {
 			user = new Seller();
@@ -51,7 +53,7 @@ public class AuthServiceImpl implements AuthService {
 		}
 		}
 		user.setUserEmail(userRequest.getUserEmail());
-		user.setPassword(userRequest.getPassword());
+		user.setPassword(  passwordEncoder.encode( userRequest.getPassword()));
 		user.setUserRole(userRequest.getUserRole());
 		user.setUserName(userRequest.getUserEmail().split("@")[0]);
 		return (T) user;
