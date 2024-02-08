@@ -5,6 +5,7 @@ import lombok.Getter;
 
 @Getter
 @AllArgsConstructor
-public class UserNotADMINException extends RuntimeException {
+public class ExpiredException extends RuntimeException {
 	private String message;
+
 }
