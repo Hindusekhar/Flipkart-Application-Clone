@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import com.jsp.fc.entity.Customer;
@@ -25,14 +26,12 @@ import lombok.NoArgsConstructor;
 @Service
 @AllArgsConstructor
 public class AuthServiceImpl implements AuthService {
-
 	private sellerRepository sellerRepository;
-
 	private customerRepository customerRepository;
-
 	private ResponseStructure<UserResponse> responseStructure;
-
 	private UserRepository userRepository;
+	PasswordEncoder passwordEncoder;
+	
 
 	private UserResponse mapToUserResponse(User request) {
 		return UserResponse.builder().userId(request.getUserId()).userName(request.getUserName()).userEmail(request.getUserEmail()).userRole(request.getUserRole()).build();
@@ -51,7 +50,7 @@ public class AuthServiceImpl implements AuthService {
 		}
 		}
 		user.setUserEmail(userRequest.getUserEmail());
-		user.setPassword(userRequest.getPassword());
+		user.setPassword( userRequest.getPassword());
 		user.setUserRole(userRequest.getUserRole());
 		user.setUserName(userRequest.getUserEmail().split("@")[0]);
 		return (T) user;
