@@ -1,5 +1,6 @@
 package com.jsp.fc.serviceimpl;
 
+import java.util.Date;
 import java.util.Random;
 import java.util.function.Supplier;
 
@@ -31,9 +32,12 @@ import com.jsp.fc.util.ResponseStructure;
 
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
+import jakarta.websocket.Encoder.Text;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 @Service
 @AllArgsConstructor
 public class AuthServiceImpl implements AuthService {
@@ -57,9 +61,17 @@ public class AuthServiceImpl implements AuthService {
 		otpCacheStore.add(userRequest.getUserEmail(), otp);
 		userCacheStore.add(userRequest.getUserEmail(), user);
 
+		try {
+			sendOtpToMail(user, otp);
+		} catch (MessagingException e) {
+
+			e.printStackTrace();
+			log.error("the mail adress doesn't exist");
+		}
+
 		return new ResponseEntity<ResponseStructure<UserResponse>>(
 				responseStructure.setStatus(HttpStatus.CREATED.value()).setData(mapToUserResponse(user))
-						.setMessage("please verify otp"+otp),
+						.setMessage("please verify otp sent on email Id"),
 				HttpStatus.CREATED);
 
 	}
@@ -67,19 +79,26 @@ public class AuthServiceImpl implements AuthService {
 	@Override
 	public ResponseEntity<ResponseStructure<UserResponse>> verifyotp(OtpModel otpModel) {
 		User user = userCacheStore.get(otpModel.getUserEmail());
-		String otp  = otpCacheStore.get(otpModel.getUserEmail());
-		
-		if(otp==null)throw new ExpiredException("otp Expired");
-		if(user==null)throw new ExpiredException("Registration session expired");
-		if(!otp.equals(otpModel.getOtp()))throw new InvalidOtpException("Invalid Otp");
-		
+		String otp = otpCacheStore.get(otpModel.getUserEmail());
+
+		if (otp == null)
+			throw new ExpiredException("otp Expired");
+		if (user == null)
+			throw new ExpiredException("Registration session expired");
+		if (!otp.equals(otpModel.getOtp()))
+			throw new InvalidOtpException("Invalid Otp");
+
 		user.setEmailVerified(true);
-		user=userRepository.save(user);
-		
-		
-		
-		return new ResponseEntity<ResponseStructure<UserResponse>>(responseStructure.setStatus(HttpStatus.CREATED.value())
-				.setMessage(otp).setData(mapToUserResponse(user)),HttpStatus.CREATED);
+		user = userRepository.save(user);
+		try {
+			sendConfirmRegistration(user);
+		} catch (MessagingException e) {
+			log.error("the mail adress doesn't exist");
+		}
+
+		return new ResponseEntity<ResponseStructure<UserResponse>>(responseStructure
+				.setStatus(HttpStatus.CREATED.value()).setMessage(otp).setData(mapToUserResponse(user)),
+				HttpStatus.CREATED);
 	}
 
 	private UserResponse mapToUserResponse(User request) {
@@ -120,30 +139,44 @@ public class AuthServiceImpl implements AuthService {
 		return user;
 	}
 
-//	@Scheduled(fixedDelay = 1000l * 60 * 60)
-//	private void deletUsers() {
-//		userRepository.findAll().forEach(user -> {
-//			if (!user.isDeleted())
-//				userRepository.delete(user);
-//
-//		});
-//	}
-//	
-	private String generateOtp()
-	{
-		return String.valueOf( new Random().nextInt(100000,999999));
-	
+	// @Scheduled(fixedDelay = 1000l * 60 * 60)
+	// private void deletUsers() {
+	// userRepository.findAll().forEach(user -> {
+	// if (!user.isDeleted())
+	// userRepository.delete(user);
+	//
+	// });
+	// }
+	//
+	private String generateOtp() {
+		return String.valueOf(new Random().nextInt(100000, 999999));
+
 	}
-	
+
+	public void sendConfirmRegistration(User user) throws MessagingException {
+		sendMail(MessageStructure.builder().to(user.getUserEmail()).Subject("Successfully registered with Flipkart")
+				.sentDate(new Date())
+				.text("<h4> Thank You for Registering With Flipkart </h4>" + "<h2>" + user.getUserName() + "<h2>")
+				.build());
+	}
+
+	public void sendOtpToMail(User user, String otp) throws MessagingException {
+		sendMail(MessageStructure.builder().to(user.getUserEmail()).Subject("Complete your Registaration to Flipkart")
+				.sentDate(new Date())
+				.text("hey, " + user.getUserName() + "Good to see you interested in flipkart,"
+						+ "complete your Registration using the otp<br>" + "<h1>" + otp + "</h1><br>"
+						+ "Note: the otp expires in 1 minute" + "<br><br>" + "With Best Regards<br>" + "flipkart")
+				.build());
+	}
+
 	@Async
-	private void sendMessage(MessageStructure messageStructure) throws MessagingException 
-	{
-		MimeMessage mimeMessage=javaMailSender.createMimeMessage();
-		MimeMessageHelper helper=new MimeMessageHelper(mimeMessage, true);
+	private void sendMail(MessageStructure messageStructure) throws MessagingException {
+		MimeMessage mimeMessage = javaMailSender.createMimeMessage();
+		MimeMessageHelper helper = new MimeMessageHelper(mimeMessage, true);
 		helper.setTo(messageStructure.getTo());
 		helper.setSubject(messageStructure.getSubject());
 		helper.setSentDate(messageStructure.getSentDate());
-		helper.setText(messageStructure.getText());
+		helper.setText(messageStructure.getText(), true);
 		javaMailSender.send(mimeMessage);
 	}
 

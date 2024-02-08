@@ -12,11 +12,11 @@ public class CacheBeanConfig {
 
 	@Bean
 	public CacheStore<User> userCacheStore(){
-		return new CacheStore<User>(Duration.ofMinutes(1));
+		return new CacheStore<User>(Duration.ofMinutes(5));
 	}
 	
 	@Bean
 	public CacheStore<String> otpCacheStore(){
-		return new CacheStore<String>(Duration.ofMinutes(1));
+		return new CacheStore<String>(Duration.ofMinutes(5));
 	} 
 }
