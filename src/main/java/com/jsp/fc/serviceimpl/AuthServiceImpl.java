@@ -2,6 +2,8 @@ package com.jsp.fc.serviceimpl;
 
 import java.time.LocalDateTime;
 import java.util.Date;
+import java.util.List;
+import java.util.Optional;
 import java.util.Random;
 import java.util.function.Supplier;
 
@@ -14,9 +16,11 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -24,11 +28,13 @@ import org.springframework.stereotype.Service;
 import com.jsp.fc.cache.CacheStore;
 import com.jsp.fc.entity.AccessToken;
 import com.jsp.fc.entity.Customer;
-import com.jsp.fc.entity.RefereshToken;
+import com.jsp.fc.entity.RefreshToken;
 import com.jsp.fc.entity.Seller;
 import com.jsp.fc.entity.User;
 import com.jsp.fc.exception.ExpiredException;
 import com.jsp.fc.exception.InvalidOtpException;
+import com.jsp.fc.exception.NotFoundException;
+import com.jsp.fc.exception.UserLoggedOutException;
 import com.jsp.fc.exception.UserNotLoggedException;
 import com.jsp.fc.repository.AccessTokenRepo;
 import com.jsp.fc.repository.CustomerRepository;
@@ -86,8 +92,8 @@ public class AuthServiceImpl implements AuthService {
 			ResponseStructure<UserResponse> responseStructure, UserRepository userRepository,
 			PasswordEncoder passwordEncoder, CacheStore<User> userCacheStore, JavaMailSender javaMailSender,
 			CacheStore<String> otpCacheStore, AuthenticationManager authenticationManager, CookieManager cookieManager,
-			JwtService jwtService, RefreshTokenRepo refreshTokenRepo, AccessTokenRepo accessTokenRepo
-			,SimpleStructure simpleStructure) {
+			JwtService jwtService, RefreshTokenRepo refreshTokenRepo, AccessTokenRepo accessTokenRepo,
+			SimpleStructure simpleStructure) {
 
 		this.sellerRepository = sellerRepository;
 		this.customerRepository = customerRepository;
@@ -102,9 +108,10 @@ public class AuthServiceImpl implements AuthService {
 		this.jwtService = jwtService;
 		this.refreshTokenRepo = refreshTokenRepo;
 		this.accessTokenRepo = accessTokenRepo;
-		this.simpleStructure=simpleStructure;
+		this.simpleStructure = simpleStructure;
 	}
 
+	
 	@Override
 	public ResponseEntity<ResponseStructure<UserResponse>> registerUser(UserRequest userRequest) {
 		if (userRepository.existsByUserEmail(userRequest.getUserEmail()))
@@ -162,10 +169,10 @@ public class AuthServiceImpl implements AuthService {
 
 	@Override
 	public ResponseEntity<ResponseStructure<AuthResponse>> login(AuthRequest authRequest,
-			HttpServletResponse httpServletResponse) {
-
+			HttpServletResponse httpServletResponse,String accessToken, String refereshToken) {
+		
+		if(accessToken!=null && refereshToken!=null)throw new UserLoggedOutException("user logged out ");
 		String userName = authRequest.getUserEmail().split("@")[0];
-		log.info(userName);
 		UsernamePasswordAuthenticationToken passwordAuthenticationToken = new UsernamePasswordAuthenticationToken(
 				userName, authRequest.getPassword());
 		Authentication authentication = authenticationManager.authenticate(passwordAuthenticationToken);
@@ -174,7 +181,7 @@ public class AuthServiceImpl implements AuthService {
 		else {
 			// generating the cookies and authresoponse and returning to the client
 			return userRepository.findByUserName(userName).map(user -> {
-				
+
 				grantAccess(httpServletResponse, user);
 				ResponseStructure<AuthResponse> responseStructure = new ResponseStructure<>();
 				return new ResponseEntity<ResponseStructure<AuthResponse>>(responseStructure
@@ -188,17 +195,15 @@ public class AuthServiceImpl implements AuthService {
 		}
 
 	}
-	
-	
-	
+
 	@Override
 	public ResponseEntity<SimpleStructure> logOut(String accessToken, String refereshToken,
 			HttpServletResponse httpServletResponse) {
 		log.info(refereshToken);
 		log.info(accessToken);
-		if(accessToken ==null && refereshToken==null)
+		if (accessToken == null && refereshToken == null)
 			throw new UserNotLoggedException("user not logged in");
-		
+
 		accessTokenRepo.findByToken(accessToken).ifPresent(token -> {
 			token.setBlocked(true);
 			accessTokenRepo.save(token);
@@ -207,62 +212,59 @@ public class AuthServiceImpl implements AuthService {
 			token.setBlocked(true);
 			accessTokenRepo.save(token);
 		});
-		
+
 		httpServletResponse.addCookie(cookieManager.invalidate(new Cookie("at", "")));
 		httpServletResponse.addCookie(cookieManager.invalidate(new Cookie("rt", "")));
 
 		simpleStructure.setMessage("succesfully ogged out");
 		simpleStructure.setStatus(HttpStatus.OK.value());
-		return   new  ResponseEntity<SimpleStructure>(simpleStructure,HttpStatus.OK);
+		return new ResponseEntity<SimpleStructure>(simpleStructure, HttpStatus.OK);
 
 	}
-	
-	
-	
-//
-//	@Override
-//	public ResponseEntity<ResponseStructure<String>> logOut(HttpServletResponse response, HttpServletRequest request) {
-//
-//		Cookie[] cookies = request.getCookies();
-//		for (Cookie cookie : cookies) {
-//			if (cookie.getName().equals("rt"))
-//				rt = cookie.getValue();
-//			if (cookie.getName().equals("at"))
-//				at = cookie.getValue();
-//
-//			accessTokenRepo.findByToken(at).ifPresent(accessToken -> {
-//				accessToken.setBlocked(true);
-//				accessTokenRepo.save(accessToken);
-//			});
-//
-//			response.addCookie(cookieManager.invalidate(new Cookie("at", "")));
-//			response.addCookie(cookieManager.invalidate(new Cookie("rt", "")));
-//
-//		}
-//
-//		ResponseStructure<String> responseStructure = new ResponseStructure<>();
-//
-//		return new ResponseEntity<ResponseStructure<String>>(
-//				responseStructure.setMessage("logged in sucessful").setStatus(HttpStatus.OK.value()),HttpStatus.OK);
-//	}
-	
-	
-	
-	
-	
-	
+
+	//
+	// @Override
+	// public ResponseEntity<ResponseStructure<String>> logOut(HttpServletResponse
+	// response, HttpServletRequest request) {
+	//
+	// Cookie[] cookies = request.getCookies();
+	// for (Cookie cookie : cookies) {
+	// if (cookie.getName().equals("rt"))
+	// rt = cookie.getValue();
+	// if (cookie.getName().equals("at"))
+	// at = cookie.getValue();
+	//
+	// accessTokenRepo.findByToken(at).ifPresent(accessToken -> {
+	// accessToken.setBlocked(true);
+	// accessTokenRepo.save(accessToken);
+	// });
+	//
+	// response.addCookie(cookieManager.invalidate(new Cookie("at", "")));
+	// response.addCookie(cookieManager.invalidate(new Cookie("rt", "")));
+	//
+	// }
+	//
+	// ResponseStructure<String> responseStructure = new ResponseStructure<>();
+	//
+	// return new ResponseEntity<ResponseStructure<String>>(
+	// responseStructure.setMessage("logged in
+	// sucessful").setStatus(HttpStatus.OK.value()),HttpStatus.OK);
+	// }
 
 	private void grantAccess(HttpServletResponse httpServletResponse, User user) {
+		//generating access and refresh tokens
 		String accessToken = jwtService.generateAccessToken(user.getUserName());
 		String refreshToken = jwtService.generateRefreshToken(user.getUserName());
+		
+		//adding access and refresh tokens cookies to the response
 		httpServletResponse.addCookie(cookieManager.configure(new Cookie("at", accessToken), accessExpiryInSeconds));
 		httpServletResponse.addCookie(cookieManager.configure(new Cookie("rt", refreshToken), accessExpiryInSeconds));
 
-		accessTokenRepo.save(AccessToken.builder().token(accessToken).isBlocked(false)
-				.user(user)
+		
+		 //saving the access and refresh cookie into database
+		accessTokenRepo.save(AccessToken.builder().token(accessToken).isBlocked(false).user(user)
 				.expiration(LocalDateTime.now().plusSeconds(accessExpiryInSeconds)).build());
-		refreshTokenRepo.save(RefereshToken.builder().token(refreshToken).isBlocked(false)
-				.user(user)
+		refreshTokenRepo.save(RefreshToken.builder().token(refreshToken).isBlocked(false).user(user)
 				.expiration(LocalDateTime.now().plusSeconds(refreshExpiryInSeconds)).build());
 
 	}
@@ -306,15 +308,6 @@ public class AuthServiceImpl implements AuthService {
 		return user;
 	}
 
-	// @Scheduled(fixedDelay = 1000l * 60 * 60)
-	// private void deletUsers() {
-	// userRepository.findAll().forEach(user -> {
-	// if (!user.isDeleted())
-	// userRepository.delete(user);
-	//
-	// });
-	// }
-
 	private String generateOtp() {
 		return String.valueOf(new Random().nextInt(100000, 999999));
 	}
@@ -346,8 +339,102 @@ public class AuthServiceImpl implements AuthService {
 		javaMailSender.send(mimeMessage);
 	}
 
-	
+	@Override
+	public ResponseEntity<SimpleStructure> revokeAcess(String accessToken, String refreshToken,
+			HttpServletResponse httpServletResponse) {
 
-	
+		
+		String userName = SecurityContextHolder.getContext().getAuthentication().getName();
+		log.info("--------------------------------------------------"+userName);
+		
+		if (userName == null)
+			throw new NotFoundException("user name is null");
+		 userRepository.findByUserName(userName).ifPresent(user->{
+			 blockAccessTokens(accessTokenRepo.findAllByUserAndIsBlockedAndAndTokenNot(user, false, accessToken));
+
+				blockRefreshTokens(refreshTokenRepo.findAllByUserAndIsBlockedAndAndTokenNot(user, false, refreshToken));
+
+		 });//orElseThrow(() -> new NotFoundException("user not found"));
+
+		
+		httpServletResponse.addCookie(cookieManager.invalidate(new Cookie("at", "")));
+		httpServletResponse.addCookie(cookieManager.invalidate(new Cookie("rt", "")));
+
+		simpleStructure.setMessage("all are revoked");
+		simpleStructure.setStatus(HttpStatus.OK.value());
+		return new ResponseEntity<SimpleStructure>(simpleStructure, HttpStatus.OK);
+	}
+
+	@Override
+	public ResponseEntity<SimpleStructure> revokeOtherAcess(String accessToken, String refreshToken,
+			HttpServletResponse httpServletResponse) {
+		String userName = SecurityContextHolder.getContext().getAuthentication().getName();
+		if (userName == null)
+			throw new NotFoundException("user name is null");
+		userRepository.findByUserName(userName).ifPresent(user->{
+			
+			blockAccessTokens(accessTokenRepo.findAllByUserAndIsBlockedAndAndTokenNot(user, false, accessToken));
+
+			blockRefreshTokens(refreshTokenRepo.findAllByUserAndIsBlockedAndAndTokenNot(user, false, refreshToken));
+			
+			httpServletResponse.addCookie(cookieManager.invalidate(new Cookie("at", "")));
+			httpServletResponse.addCookie(cookieManager.invalidate(new Cookie("rt", "")));
+
+
+		});
+
+		
+		
+		simpleStructure.setMessage("all are revoked");
+		simpleStructure.setStatus(HttpStatus.OK.value());
+		return new ResponseEntity<SimpleStructure>(simpleStructure, HttpStatus.OK);
+	}
+
+	private void blockAccessTokens(List<AccessToken> accessTokens) {
+		for (AccessToken accessToken : accessTokens) {
+			accessToken.setBlocked(true);
+			accessTokenRepo.save(accessToken);
+		}
+	}
+
+	private void blockRefreshTokens(List<RefreshToken> refreshTokens) {
+		for (RefreshToken refreshToken : refreshTokens) {
+			refreshToken.setBlocked(true);
+			refreshTokenRepo.save(refreshToken);
+		}
+	}
+
+	@Override
+	public ResponseEntity<SimpleStructure> refreshToken(String accessToken, String refreshToken,
+			HttpServletResponse httpServletResponse) {
+		
+		
+			accessTokenRepo.findByToken(accessToken)
+			.ifPresent(at->{at.setBlocked(true);
+			accessTokenRepo.save(at);
+			});
+						
+		
+		if(refreshToken==null) throw new UserLoggedOutException("user is logged out");
+		refreshTokenRepo.findByToken(accessToken)
+		.ifPresent(rt->{
+			grantAccess(httpServletResponse,rt.getUser());
+			revokeOtherAcess(accessToken, refreshToken, httpServletResponse);	
+			
+			
+			httpServletResponse.addCookie(cookieManager.invalidate(new Cookie("at", "")));
+			httpServletResponse.addCookie(cookieManager.invalidate(new Cookie("rt", "")));
+
+			}); 
+
+
+		
+		simpleStructure.setMessage("tokens are refreshed");		
+		simpleStructure.setStatus(HttpStatus.FOUND.value());
+
+		return new ResponseEntity<SimpleStructure>(simpleStructure,HttpStatus.FOUND);
+
+	}
+
 
 }
